@@ -82,6 +82,10 @@ Example:
     `-ls`  
     `--ls`
 
+# where can i get samples?
+
+@gleitz packed [General MIDI soundfonts](https://github.com/gleitz/midi-js-soundfonts) for [MIDI.js](https://github.com/mudcube/MIDI.js), that could help.
+
 # bugs
 
 Probably there are a couple of hidden gems in there, if you happen to find one, [please report it](https://github.com/lvm/m5k/issues).
