@@ -1,7 +1,7 @@
 m5k, thingy to play with musik.
 ===
 
-In m5k you play with music by playing two kind of *media files*, samples and `buffers`. A sample is an audio file (by default, ogg, wav or mp3), and a `buffer` which is no less than a plain text file (with the extension .m5k) with a list of commands.  
+In m5k you play with music by playing two kind of *media files*, samples and `buffers`. A sample is an audio file (by default, ogg, wav or mp3), and a `buffer` which is no less than a plain text file with the extension .m5k (think of it as a collection of commands).  
 All audio files are actually played using `vlc.py` (see file for LICENSE).  
 
 # how to install
