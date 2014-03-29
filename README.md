@@ -53,6 +53,8 @@ This console comes with a list of *built-in* commands:
  * cat / read: Reads a sample or a buffer.
  * run / repeat: Runs a line.
  * reload: Reloads the samplelist and bufferlist.
+ * load: Loads a soundpack
+ * unload: Unloads a soundpack.
 
 Also, it's possible to ask for help by running a command with a question mark, that'd be: `help?`, `play?`, etc.
 

@@ -1,0 +1,14 @@
+0.02 - Fri, 28 Mar 2014 21:15:53 -0300
+	
+  * Added load/unload for sound packs
+  * Soundpacks!
+    This means, if inside the `samples` directory we have a bunch of
+    directories each will be a `soundpack`. This way we can load the
+    default samplelist + a soundpack with extra sounds.
+    ATM it's only possible to load a single soundpack at a time.
+  * changelog! you're reading it. From now on i'll be adding here
+    new features and stuff. Dates use the RFC 2822 format. 
+
+0.01 - Wed 26 Mar 2014 01:06:19 AM
+	
+  * First release.

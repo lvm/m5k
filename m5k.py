@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 __author__ = 'Mauro L;'
-__version__ = '0.01'
+__version__ = '0.02'
 __license__ = 'BSD3'
 
 
@@ -61,7 +61,8 @@ regex_commands = u"(.[\w?]+)( (.[\w/;? ]+)(&)?)?"
 regex_run = u"(.[\w ]+)(~[\d]+)?"
 regex_help = u"(.[\w]+)"
 regex_save = u"(.[\w\-]+)"
-regex_read = u"(.[\w\-]+)"
+regex_cat = u"(.[\w\-]+)"
+regex_load = u"(.[\w]+)"
 regex_play_snd = u" ?((.[\w]+)(~[\d]+)?)"
 regex_times = u"[^0-9]"
 
@@ -71,21 +72,26 @@ class O(object):
         return setattr(self, '__dict__', kwargs)
 
 
-def _load_samples(cfg=None):
+def _load_samples(samples_path=None, ext_list=[]):
     samples = {}
-    for ext in cfg.ext_list:
-        s_path = os.path.join(cfg.samples_path, '*.%s' % ext)
-        for sample in glob.glob(s_path):
-            s_filename = os.path.basename(sample).replace(ext, '')
-            sample_slug = slug.slug(u"%s" % s_filename)
-            samples[sample_slug] = O(path=sample)
+    if samples_path:
+        samples_path = os.path.abspath(samples_path)
+        if os.path.isdir(samples_path):
+            samples_dir = slug.slug(u"%s" % os.path.basename(samples_path))
+            samples[samples_dir] = {}
+            for ext in ext_list:
+                s_path = os.path.join(samples_path, '*.%s' % ext)
+                for sample in glob.glob(s_path):
+                    s_filename = os.path.basename(sample).replace(ext, '')
+                    sample_slug = slug.slug(u"%s" % s_filename)
+                    samples[samples_dir][sample_slug] = O(path=sample)
 
     return samples
 
 
-def _load_buffers(cfg=None):
+def _load_buffers(buffers_path=None):
     buffers = {}
-    for b_filename in glob.glob(os.path.join(cfg.buffers_path, '*')):
+    for b_filename in glob.glob(os.path.join(buffers_path, '*')):
         buffer_file = open(b_filename, 'r')
         b_filename = os.path.basename(b_filename.split('.')[0])
         buffer_slug = slug.slug(u"%s" % b_filename)
@@ -152,9 +158,13 @@ def _is_audio(audio=None, *args, **kwargs):
         au = bufferlist[audio]
         typeof = u'buffer'
 
-    if audio in samplelist:
-        au = samplelist[audio]
-        typeof = u'sample'
+    else:
+        samples = []
+        for key in samplelist.keys():
+            if audio in samplelist[key].keys():
+                au = samplelist[key][audio]
+                typeof = u'sample'
+                break
 
     return O(data=au, typeof=typeof)
 
@@ -175,6 +185,13 @@ def _parse_cmd(c_params=None):
                     params = params or ""
                     result = cmd_func.fn(params.strip())
     return result
+
+
+def f_null(*args, **kwargs):
+    """
+    NOT IMPLEMENTED.
+    """
+    return ""
 
 
 def f_run(c_params, *args, **kwargs):
@@ -200,8 +217,46 @@ def f_reload(*args, **kwargs):
     # depends on global variables `cfg`, `samplelist` and `bufferlist`
     global samplelist
     global bufferlist
-    samplelist = _load_samples(cfg)
-    bufferlist = _load_buffers(cfg)
+    samplelist = _load_samples(cfg.samples_path, cfg.ext_list)
+    bufferlist = _load_buffers(cfg.buffers_path)
+    return ""
+
+
+def f_load(p_params, *args, **kwargs):
+    """
+    Loads a soundpack.
+    """
+    # depends on global variables `cfg`, `samplelist` and `bufferlist`
+    global samplelist
+    global bufferlist
+    if p_params:
+        new_samplelist = samplelist.copy()
+        p_list = map(lambda c: c.strip(),
+                     re.findall(regex_load, p_params))
+        for path in p_list:
+            if path not in samplelist.keys():
+                sample_path = os.path.join(cfg.samples_path, path)
+                new_samples = _load_samples(sample_path, cfg.ext_list)
+                new_samplelist.update(new_samples)
+            #else:
+            #    f_reload()
+        samplelist = new_samplelist
+    return ""
+
+
+def f_unload(p_params, *args, **kwargs):
+    """
+    Unloads a soundpack.
+    """
+    # depends on global variables `cfg`, `samplelist` and `bufferlist`
+    global samplelist
+    global bufferlist
+    if p_params:
+        p_list = map(lambda c: c.strip(),
+                     re.findall(regex_load, p_params))
+        for path in p_list:
+            if samplelist.has_key(path):
+                del samplelist[path]
     return ""
 
 
@@ -229,7 +284,7 @@ def f_cat(a_params, *args, **kwargs):
     result = f_cat.__doc__
     if a_params:
         a_list = map(lambda c: c.strip(),
-                     re.findall(regex_save, a_params))
+                     re.findall(regex_cat, a_params))
         for au in a_list:
             audio = _is_audio(au)
             if audio.data:
@@ -268,7 +323,11 @@ def f_ls(*args, **kwargs):
     """
     Returns a list of samples and buffers.
     """
-    return samplelist.keys() + bufferlist.keys()
+    samples = []
+    for key in samplelist.keys():
+        samples.append( samplelist[key].keys() )
+
+    return bufferlist.keys() + samples
 
 
 def f_play(s_params=None, *args, **kwargs):
@@ -323,8 +382,9 @@ cfg = O(buffers_path=os.path.join(APP_ROOT, u'buffers'),
         samples_path=os.path.join(APP_ROOT, u'samples'),
         ext_list=[u'mp3', u'ogg', u'wav'])
 
-samplelist = _load_samples(cfg)
-bufferlist = _load_buffers(cfg)
+samplelist = None  #_load_samples(cfg)
+bufferlist = None  #_load_buffers(cfg)
+f_reload()
 
 funclist = {'help': f_help,
             'play': f_play,
@@ -337,6 +397,8 @@ funclist = {'help': f_help,
             'read': f_cat,
             'run': f_run,
             'repeat': f_run,
+            'load': f_load,
+            'unload': f_unload,
             'reload': f_reload, }
 
 
