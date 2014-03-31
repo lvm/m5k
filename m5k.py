@@ -155,7 +155,7 @@ def _audio_engine(e_params=None, *args, **kwargs):
             SELECTED_AUDIO_ENGINE = _vlc
 
         elif engine == "pygame":
-            if "pygame" not in globals():
+            if "pygame" not in globals().keys():
                 _audio_engine("vlc")
             else:
                 pygame.init()
