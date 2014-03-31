@@ -2,7 +2,7 @@ m5k, thingy to play with musik.
 ===
 
 In m5k you play with music by playing two kind of *media files*, samples and `buffers`. A sample is an audio file (by default, ogg, wav or mp3), and a `buffer` which is no less than a plain text file with the extension .m5k (think of it as a collection of commands).  
-All audio files are actually played using `vlc.py` (see file for LICENSE).  
+All audio files are played using `vlc.py` (see file for LICENSE) or `pygame`. See `Audio Engine`.
 
 # how to install
 
@@ -32,6 +32,8 @@ usage: m5k.py [-h] [-c] [-r RUN] [-p PLAY] [-ls]
 optional arguments:
   -h, --help            show this help message and exit
   -c, --console         Pretty and basic interactive console.
+  -e ENGINE, --engine ENGINE
+                        Selects an Audio engine (vlc or pygame)
   -r RUN, --run RUN     Runs a line.
   -p PLAY, --play PLAY  Plays samples and buffers.
   -ls, --list           Returns a list of samples and buffers.
@@ -55,8 +57,13 @@ This console comes with a list of *built-in* commands:
  * reload: Reloads the samplelist and bufferlist.
  * load: Loads a soundpack
  * unload: Unloads a soundpack.
+ * vars: Returns globals()
 
 Also, it's possible to ask for help by running a command with a question mark, that'd be: `help?`, `play?`, etc.
+
+## Audio engine: `-e`, `--engine`
+
+Allows to choose play audio with vlc or pygame.
 
 ## Run: `-r`, `--run`
 
