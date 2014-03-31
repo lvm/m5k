@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 __author__ = 'Mauro L;'
-__version__ = '0.03'
+__version__ = '0.03.1'
 __license__ = 'BSD3'
 
 
@@ -49,13 +49,17 @@ import atexit
 import argparse
 import tempfile
 import readline
-import slug
 import vlc
+
+try:
+    import slug
+except ImportError:
+    print "you need to install `slug`\nSee requirements.pip"
 
 try:
     import pygame
 except ImportError:
-    print "you need to install pygame"
+    print "you need to install `pygame`\nSee requirements.pip"
 
 
 PS1 = u"m5k>"
