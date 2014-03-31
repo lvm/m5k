@@ -1,3 +1,12 @@
+0.03 - Mon, 31 Mar 2014 00:17:57 -0300
+	
+  * Audio engines!
+    Now it's possible to choose between `vlc` (by default) or `pygame`
+    to play samples.
+  * vars!
+    Also it's possible to see what's in globals()
+  * updated `requirements.pip`.
+
 0.02 - Fri, 28 Mar 2014 21:15:53 -0300
 	
   * Added load/unload for sound packs
