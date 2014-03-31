@@ -1,3 +1,7 @@
+0.03.2 - Mon, 31 Mar 2014 00:26:17 -0300
+	
+  * pygame in global() > pygame in globals().keys().
+
 0.03.1 - Mon, 31 Mar 2014 00:23:54 -0300
 	
   * Mini update: try except for both `slug` and `pygame`.
