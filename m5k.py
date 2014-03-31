@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 __author__ = 'Mauro L;'
-__version__ = '0.02'
+__version__ = '0.03'
 __license__ = 'BSD3'
 
 
@@ -52,13 +52,23 @@ import readline
 import slug
 import vlc
 
+try:
+    import pygame
+except ImportError:
+    print "you need to install pygame"
+
 
 PS1 = u"m5k>"
 # by default APP_ROOT lives with m5k.py
 APP_ROOT = os.path.dirname(__file__)
+DEFAULT_AUDIO_ENGINE = 'vlc'
+VALID_AUDIO_ENGINES = ['vlc', 'pygame']
+SELECTED_AUDIO_ENGINE = None
 
 regex_commands = u"(.[\w?]+)( (.[\w/;? ]+)(&)?)?"
+regex_audio = u"^(vlc|pygame)$"
 regex_run = u"(.[\w ]+)(~[\d]+)?"
+regex_vars = u"(.[\w]+)"
 regex_help = u"(.[\w]+)"
 regex_save = u"(.[\w\-]+)"
 regex_cat = u"(.[\w\-]+)"
@@ -117,13 +127,47 @@ def _vlc(s_file):
         time.sleep(.1)
 
 
+def _pyg(s_file):
+    pygame.mixer.music.load(s_file)
+    pygame.mixer.music.play()
+    while pygame.mixer.music.get_busy():
+        pygame.time.Clock().tick(10)
+
+
+def _audio_engine(e_params=None, *args, **kwargs):
+    """
+    Selects an Audio engine (vlc or pygame)
+    """
+    global SELECTED_AUDIO_ENGINE
+
+    engine = DEFAULT_AUDIO_ENGINE
+    if e_params:
+        engine_list = re.findall(regex_audio, e_params)
+        if engine_list:
+            engine = ''.join(engine_list).strip()
+
+    if engine in VALID_AUDIO_ENGINES:
+        if engine == "vlc":
+            SELECTED_AUDIO_ENGINE = _vlc
+
+        elif engine == "pygame":
+            if "pygame" not in globals():
+                _audio_engine("vlc")
+            else:
+                pygame.init()
+                pygame.mixer.init()
+                SELECTED_AUDIO_ENGINE = _pyg
+
+    return engine
+
+
 def _player(s_file, times=1):
     """
     a wrapper inside a wrapper that plays audio files.
     """
     # this is about as raunchy as it gets.
     for t in range(int(times)):
-        _vlc(s_file)
+        SELECTED_AUDIO_ENGINE(s_file)
 
 
 def _is_func(cmd=None, *args, **kwargs):
@@ -238,8 +282,6 @@ def f_load(p_params, *args, **kwargs):
                 sample_path = os.path.join(cfg.samples_path, path)
                 new_samples = _load_samples(sample_path, cfg.ext_list)
                 new_samplelist.update(new_samples)
-            #else:
-            #    f_reload()
         samplelist = new_samplelist
     return ""
 
@@ -255,7 +297,7 @@ def f_unload(p_params, *args, **kwargs):
         p_list = map(lambda c: c.strip(),
                      re.findall(regex_load, p_params))
         for path in p_list:
-            if samplelist.has_key(path):
+            if path in samplelist:
                 del samplelist[path]
     return ""
 
@@ -312,6 +354,24 @@ def f_help(c_params=None, *args, **kwargs):
     return result
 
 
+def f_vars(v_params, *args, **kwargs):
+    """
+    Returns globals().
+    """
+    result = globals().keys()
+    if v_params:
+        vars_list = re.findall(regex_vars, v_params)
+        if vars_list:
+            vars_item = ''.join(vars_list)
+            if vars_item in globals().keys():
+                result = u"{var}: {value}\n{help_text}".format(
+                    var=vars_item,
+                    value=globals()[vars_item],
+                    help_text=dir(globals()[vars_item]))
+
+    return result
+
+
 def f_quit(*args, **kwargs):
     """
     Exit
@@ -325,7 +385,7 @@ def f_ls(*args, **kwargs):
     """
     samples = []
     for key in samplelist.keys():
-        samples.append( samplelist[key].keys() )
+        samples.append(samplelist[key].keys())
 
     return bufferlist.keys() + samples
 
@@ -347,8 +407,6 @@ def f_play(s_params=None, *args, **kwargs):
                     b_result = []
                     for line in audio.data:
                         b_result.append(f_run(line))
-                        #_parse_cmd(line)
-                    result = '\n'.join(b_result)
             else:
                 result = u"invalid audio"
 
@@ -382,8 +440,8 @@ cfg = O(buffers_path=os.path.join(APP_ROOT, u'buffers'),
         samples_path=os.path.join(APP_ROOT, u'samples'),
         ext_list=[u'mp3', u'ogg', u'wav'])
 
-samplelist = None  #_load_samples(cfg)
-bufferlist = None  #_load_buffers(cfg)
+samplelist = None
+bufferlist = None
 f_reload()
 
 funclist = {'help': f_help,
@@ -399,7 +457,8 @@ funclist = {'help': f_help,
             'repeat': f_run,
             'load': f_load,
             'unload': f_unload,
-            'reload': f_reload, }
+            'reload': f_reload,
+            'vars': f_vars, }
 
 
 if __name__ == '__main__':
@@ -407,6 +466,10 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--console',
                         action="store_true",
                         help=console.__doc__)
+
+    parser.add_argument('-e', '--engine',
+                        type=str,
+                        help=_audio_engine.__doc__)
 
     parser.add_argument('-r', '--run',
                         type=str,
@@ -421,6 +484,8 @@ if __name__ == '__main__':
                         help=f_ls.__doc__)
 
     args = parser.parse_args()
+
+    _audio_engine(args.engine)
 
     if args.console:
         buffer_temp = tempfile.mkstemp(prefix='m5k-')[1]
