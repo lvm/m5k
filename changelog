@@ -1,3 +1,24 @@
+0.04 - Tue, 29 Apr 2014 23:13:21 -0300
+
+  * espeak!
+    Now it's possible to speak by typing "say [\w]".
+  * SFML
+    Added support for SFML as another audio engine.
+  * (crappy) loops.
+    Another flag was added that allows to run a buffer on a loop.
+  * load_buffers almost rewritten. More to come.
+  * funclist rewritten. Instead of a dict its a list of O objects.
+  * regex simplified.
+  * speed
+    Now it's possible to change the FRAMERATE by typing "speed NN"
+  * play
+    Rewrote the way a sound is interpreted: sound+times~fadeout.
+    Probably will suffer more changes.
+  * m5k-mode.el
+    AKA: Poor man's livecoding environment.
+  * More dependencies:
+    shlex, daemon, subprocess, psutil
+
 0.03.2 - Mon, 31 Mar 2014 00:26:17 -0300
 	
   * pygame in global() > pygame in globals().keys().

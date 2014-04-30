@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 __author__ = 'Mauro L;'
-__version__ = '0.03.1'
+__version__ = '0.04'
 __license__ = 'BSD3'
 
 
@@ -45,11 +45,42 @@ import re
 import sys
 import glob
 import time
+import shlex
 import atexit
 import argparse
 import tempfile
 import readline
+import subprocess
 import vlc
+
+try:
+    import sfml as sf
+    USE_SFML=True
+except ImportError:
+    USE_SFML=False
+    print "you need to install `sfml`\nSee requirements.pip"
+
+try:
+    from espeak import espeak
+    from espeak import core as espeak_core
+    USE_ESPEAK=True
+except ImportError:
+    USE_ESPEAK=False
+    print "you need to install `espeak`\nSee requirements.pip"
+
+try:
+    import psutil
+    USE_PSUTIL=True
+except ImportError:
+    USE_PSUTIL=False
+    print "you need to install `psutil`\nSee requirements.pip"
+
+try:
+    import daemon
+    USE_DAEMON=True
+except ImportError:
+    USE_DAEMON=False
+    print "you need to install `daemon`\nSee requirements.pip"
 
 try:
     import slug
@@ -66,112 +97,28 @@ PS1 = u"m5k>"
 # by default APP_ROOT lives with m5k.py
 APP_ROOT = os.path.dirname(__file__)
 DEFAULT_AUDIO_ENGINE = 'vlc'
-VALID_AUDIO_ENGINES = ['vlc', 'pygame']
+VALID_AUDIO_ENGINES = ['vlc', 'pygame', 'sfml']
 SELECTED_AUDIO_ENGINE = None
+FRAMERATE = 160
 
-regex_commands = u"(.[\w?]+)( (.[\w/;? ]+)(&)?)?"
-regex_audio = u"^(vlc|pygame)$"
-regex_run = u"(.[\w ]+)(~[\d]+)?"
+regex_commands = u"(^[\w?]+)"
+regex_audio = u"^(vlc|pygame|sfml)$"
+regex_run = u"(.*)"
+regex_framerate = u"([\d]+)"
 regex_vars = u"(.[\w]+)"
 regex_help = u"(.[\w]+)"
 regex_save = u"(.[\w\-]+)"
 regex_cat = u"(.[\w\-]+)"
 regex_load = u"(.[\w]+)"
-regex_play_snd = u" ?((.[\w]+)(~[\d]+)?)"
-regex_times = u"[^0-9]"
+regex_play_snd = u"(([\w\-_]+)(\+[\d]+)?(~[\d]+)?)"
+regex_say = u"(([\w\,.#]+)(~[\d]+)?)"
+regex_numeric = u"[^0-9]"
+regex_pid = u"([0-9]+)"
 
 
 class O(object):
     def __init__(self, *args, **kwargs):
         return setattr(self, '__dict__', kwargs)
-
-
-def _load_samples(samples_path=None, ext_list=[]):
-    samples = {}
-    if samples_path:
-        samples_path = os.path.abspath(samples_path)
-        if os.path.isdir(samples_path):
-            samples_dir = slug.slug(u"%s" % os.path.basename(samples_path))
-            samples[samples_dir] = {}
-            for ext in ext_list:
-                s_path = os.path.join(samples_path, '*.%s' % ext)
-                for sample in glob.glob(s_path):
-                    s_filename = os.path.basename(sample).replace(ext, '')
-                    sample_slug = slug.slug(u"%s" % s_filename)
-                    samples[samples_dir][sample_slug] = O(path=sample)
-
-    return samples
-
-
-def _load_buffers(buffers_path=None):
-    buffers = {}
-    for b_filename in glob.glob(os.path.join(buffers_path, '*')):
-        buffer_file = open(b_filename, 'r')
-        b_filename = os.path.basename(b_filename.split('.')[0])
-        buffer_slug = slug.slug(u"%s" % b_filename)
-        buffers[buffer_slug] = map(lambda l: l.replace('\n', ''),
-                                   buffer_file.readlines())
-
-    return buffers
-
-
-def _vlc(s_file):
-    """
-    all this code to play a single audio file. /s
-    """
-    player = vlc.MediaPlayer(s_file)
-    media = player.get_media()
-    media.parse()
-    player.play()
-
-    while player.get_state() == vlc.State.Opening:
-        time.sleep(.1)
-
-    while player.get_state() == vlc.State.Playing:
-        time.sleep(.1)
-
-
-def _pyg(s_file):
-    pygame.mixer.music.load(s_file)
-    pygame.mixer.music.play()
-    while pygame.mixer.music.get_busy():
-        pygame.time.Clock().tick(10)
-
-
-def _audio_engine(e_params=None, *args, **kwargs):
-    """
-    Selects an Audio engine (vlc or pygame)
-    """
-    global SELECTED_AUDIO_ENGINE
-
-    engine = DEFAULT_AUDIO_ENGINE
-    if e_params:
-        engine_list = re.findall(regex_audio, e_params)
-        if engine_list:
-            engine = ''.join(engine_list).strip()
-
-    if engine in VALID_AUDIO_ENGINES:
-        if engine == "vlc":
-            SELECTED_AUDIO_ENGINE = _vlc
-
-        elif engine == "pygame":
-            if "pygame" not in globals().keys():
-                _audio_engine("vlc")
-            else:
-                pygame.init()
-                pygame.mixer.init()
-                SELECTED_AUDIO_ENGINE = _pyg
-
-    return engine
-
-
-def _player(s_file, times=1):
-    """
-    a wrapper inside a wrapper that plays audio files.
-    """
-    # this is about as raunchy as it gets.
-    for t in range(int(times)):
-        SELECTED_AUDIO_ENGINE(s_file)
 
 
 def _is_func(cmd=None, *args, **kwargs):
@@ -187,10 +134,25 @@ def _is_func(cmd=None, *args, **kwargs):
         cmd = cmd.replace('?', '')
         elp = True
 
-    if cmd in funclist.keys():
-        func_fn = funclist[cmd]
+    if cmd in funcdict.keys():
+        func_fn = funcdict[cmd].func
 
     return O(fn=func_fn, h=elp)
+
+
+def _is_buffer_playable(l_params=None, *args, **kwargs):
+    """
+    verifies if the command is buffer playable
+    """
+    result = False
+    if l_params:
+        commands_list = re.findall(regex_commands, l_params)
+        for cmd in commands_list:
+            cmd_func = _is_func(cmd)
+            if cmd_func.fn:
+                result = funcdict[cmd].playable
+
+    return result
 
 
 def _is_audio(audio=None, *args, **kwargs):
@@ -201,6 +163,8 @@ def _is_audio(audio=None, *args, **kwargs):
 
     typeof = None
     au = None
+    if audio:
+        audio = audio.strip()
 
     if audio in bufferlist:
         au = bufferlist[audio]
@@ -217,20 +181,161 @@ def _is_audio(audio=None, *args, **kwargs):
     return O(data=au, typeof=typeof)
 
 
-def _parse_cmd(c_params=None):
+def _load_samples(samples_path=None, ext_list=[]):
+    samples = {}
+    if samples_path:
+        samples_path = os.path.abspath(samples_path)
+        if os.path.isdir(samples_path):
+            samples_dir = slug.slug(u"%s" % os.path.basename(samples_path))
+            samples[samples_dir] = {}
+            for ext in ext_list:
+                s_path = os.path.join(samples_path, '*.%s' % ext)
+                for sample in glob.glob(s_path):
+                    s_filename = os.path.basename(sample).replace(ext, '')
+                    sample_slug = slug.slug(u"%s" % s_filename)
+                    samples[samples_dir][sample_slug] = O(path=sample)
+
+            samples['packs'] = {}
+            for directory in glob.glob(os.path.join(cfg.samples_path, "*/")):
+                d_name = os.path.basename(re.sub("/$","", directory))
+                d_slug = slug.slug(u"%s" % d_name)
+                samples['packs'][d_slug] = {}
+
+    return samples
+
+
+def _load_buffers(buffers_path=None):
+    buffers = {}
+    for b_filename in glob.glob(os.path.join(buffers_path, '*')):
+        buffer_file = open(b_filename, 'r')
+        b_filename = os.path.basename(b_filename.split('.')[0])
+        buffer_slug = slug.slug(u"%s" % b_filename)
+        buffers[buffer_slug] = map(lambda l: l.replace('\n', ''),
+                                   buffer_file.readlines())
+
+    return buffers
+
+
+def _vlc(s_file, times=None, fadeout=None):
+    """
+    all this code to play a single audio file. /s
+    """
+    player = vlc.MediaPlayer(s_file)
+    media = player.get_media()
+    media.parse()
+
+    for t in range(times):
+        player.play()
+
+        while player.get_state() == vlc.State.Opening:
+            time.sleep(.1)
+
+        while player.get_state() == vlc.State.Playing:
+            time.sleep(.1)
+
+
+def _pyg(s_file, times=0, fadeout=None):
+    global FRAMERATE
+    pygame.mixer.music.load(s_file)
+    pygame.mixer.music.play(times or 0)
+    if fadeout:
+        try:
+            pygame.mixer.music.fadeout(int(fadeout))
+        except:
+            pass
+
+    while pygame.mixer.music.get_busy():
+        pygame.time.Clock().tick(FRAMERATE)
+
+
+def _sfml(s_file, times=None, fadeout=None):
+    global FRAMERATE
+    sound = sf.Music.from_file(s_file)
+
+    for t in range(times):
+        sound.play()
+        while sound.status == sf.Music.PLAYING:
+            sf.sleep(sf.milliseconds(FRAMERATE))
+
+
+def _audio_engine(e_params=None, *args, **kwargs):
+    """
+    Selects an Audio engine (vlc or pygame or sfml)
+    """
+    global SELECTED_AUDIO_ENGINE
+
+    engine = DEFAULT_AUDIO_ENGINE
+    if e_params:
+        engine_list = re.findall(regex_audio, e_params)
+        if engine_list:
+            engine = ''.join(engine_list).strip()
+
+    if engine in VALID_AUDIO_ENGINES:
+        if engine == "vlc":
+            SELECTED_AUDIO_ENGINE = _vlc
+
+        if engine == "sfml":
+            SELECTED_AUDIO_ENGINE = _sfml
+
+        elif engine == "pygame":
+            if "pygame" not in globals().keys():
+                _audio_engine("vlc")
+            else:
+                pygame.init()
+                pygame.mixer.init()
+                SELECTED_AUDIO_ENGINE = _pyg
+
+    return engine
+
+
+def _player(s_file, times=1, fadeout=None):
+    """
+    a wrapper inside a wrapper that plays audio files.
+    """
+    SELECTED_AUDIO_ENGINE(s_file, times, fadeout)
+
+
+def _player_buffer(b_content, *args, **kwargs):
+    for bufferline in b_content:
+        if _is_buffer_playable(bufferline):
+            f_run(bufferline)
+
+
+def _espeak_synth(args):
+    """
+    https://answers.launchpad.net/python-espeak/+question/244655
+    """
+    if not USE_ESPEAK:
+        return
+    done_synth = [False]
+    def cb(event, pos, length):
+        if event == espeak_core.event_MSG_TERMINATED:
+            done_synth[0] = True
+    espeak.set_SynthCallback(cb)
+    r = espeak.synth(args)
+    while r and not done_synth[0]:
+        time.sleep(0.05)
+    return r
+
+def _parse_cmd(c_params=None, *args, **kwargs):
     """
     give me a command and i'll see what i can do about it.
     """
+    global SELECTED_AUDIO_ENGINE
+
+    if not SELECTED_AUDIO_ENGINE:
+        SELECTED_AUDIO_ENGINE = _vlc
+
     result = u"invalid code"
     if c_params:
         commands_list = re.findall(regex_commands, c_params)
-        for cmd, params, crap, crap in commands_list:
+        for cmd in commands_list:
             cmd_func = _is_func(cmd)
             if cmd_func.fn:
                 if cmd_func.h:
                     result = f_help(cmd)
                 else:
-                    params = params or ""
+                    params = re.sub(u"^"+cmd+" ", "", c_params)
                     result = cmd_func.fn(params.strip())
     return result
 
@@ -239,7 +344,7 @@ def f_null(*args, **kwargs):
     """
     NOT IMPLEMENTED.
     """
-    return ""
+    return None
 
 
 def f_run(c_params, *args, **kwargs):
@@ -250,10 +355,8 @@ def f_run(c_params, *args, **kwargs):
     if c_params:
         c_list = re.findall(regex_run, c_params)
         b_result = []
-        for cmd, times in c_list:
-            times = re.sub(regex_times, "", times) or 1
-            for t in range(int(times)):
-                b_result.append(_parse_cmd(cmd))
+        for cmd in c_list:
+            b_result.append(_parse_cmd(cmd))
         result = filter(lambda r: r, b_result)
     return result
 
@@ -345,7 +448,7 @@ def f_help(c_params=None, *args, **kwargs):
     """
     Shows help
     """
-    result = funclist.keys()
+    result = funcdict.keys()
     if c_params:
         c_list = map(lambda c: c.strip(),
                      re.findall(regex_help, c_params))
@@ -356,6 +459,20 @@ def f_help(c_params=None, *args, **kwargs):
                     cmd=cmd, fn=cmd_func.fn.__name__,
                     help_text=cmd_func.fn.__doc__)
     return result
+
+
+def f_framerate(f_params, *args, **kwargs):
+    """
+    Modifies or returns the actual FRAMERATE.
+    """
+    # depends on global variable `FRAMERATE`
+    global FRAMERATE
+    if f_params:
+        f_list = map(lambda c: c.strip(),
+                     re.findall(regex_framerate, f_params))
+        for fr in f_list:
+            FRAMERATE = int(fr)
+    return ""
 
 
 def f_vars(v_params, *args, **kwargs):
@@ -389,9 +506,29 @@ def f_ls(*args, **kwargs):
     """
     samples = []
     for key in samplelist.keys():
-        samples.append(samplelist[key].keys())
+        samples.append({key: samplelist[key].keys()})
 
-    return bufferlist.keys() + samples
+    return [{'buffers':bufferlist.keys()}] + samples
+
+
+def f_say(s_params=None, *args, **kwargs):
+    """
+    Say a message using espeak.
+    """
+    if not USE_ESPEAK:
+        return
+    result = ""
+    if s_params:
+        say_list = re.findall(regex_say, s_params)
+        print say_list
+        for match, message, speed in say_list:
+            speed = re.sub(regex_numeric, "", speed)
+            if speed:
+                speed = int(speed)
+                speed = 450 if speed > 450 else speed
+                espeak.set_parameter(espeak.Parameter.Rate, speed)
+            _espeak_synth(message)
+    return result
 
 
 def f_play(s_params=None, *args, **kwargs):
@@ -401,20 +538,28 @@ def f_play(s_params=None, *args, **kwargs):
     result = ""
     if s_params:
         snd_list = re.findall(regex_play_snd, s_params)
-        for match, snd, times in snd_list:
-            times = re.sub(regex_times, "", times)
+        for match, snd, times, fadeout in snd_list:
+            times = re.sub(regex_numeric, "", times)
+            fadeout = re.sub(regex_numeric, "", fadeout)
             audio = _is_audio(snd)
             if audio.data:
                 if audio.typeof == u'sample':
-                    _player(audio.data.path, int(times or 1))
+                    _player(audio.data.path, int(times or 1), fadeout)
                 elif audio.typeof == u'buffer':
-                    b_result = []
-                    for line in audio.data:
-                        b_result.append(f_run(line))
+                    _player_buffer(audio.data)
             else:
                 result = u"invalid audio"
 
     return result
+
+
+def from_file(buffer_file=None):
+    """
+    Play a file.
+    """
+    if buffer_file:
+        b_name = re.sub(".m5k$", "", os.path.basename(buffer_file))
+        f_play(b_name)
 
 
 def console(buffer_file=None):
@@ -440,6 +585,50 @@ def console(buffer_file=None):
             sys.exit(1)
 
 
+def loop(parser_args):
+    """
+    Run like hell.
+    """
+    if not USE_DAEMON:
+        return
+    params = []
+    kwargs = parser_args._get_kwargs()
+    exclude_kw = ["loop"]
+    for kw, val in kwargs:
+        if val and kw not in exclude_kw:
+            params.append("--{kw} {val}".format(kw=kw,
+                                                val=val))
+    m5k_cmd = "python {m5k} {params}"
+    cmd = shlex.split(m5k_cmd.format(m5k=os.path.abspath(sys.argv[0]),
+                                     params=' '.join(params)))
+    with daemon.DaemonContext():
+        subprocess.check_output(cmd)
+    atexit.register(loop, parser_args)
+
+
+def kill(parser_args):
+    """
+    Kill'em all.
+    """
+    if not USE_DAEMON:
+        return
+    if not USE_PSUTIL:
+        return
+    kwargs = args._get_kwargs()
+    buffer2kill = None
+    ff_flag = ["fromfile"]
+    for kw, val in kwargs:
+        if val and kw in ff_flag:
+            if val.endswith(".m5k"):
+                buffer2kill = os.path.basename(val)
+
+    if buffer2kill:
+        for p in psutil.process_iter():
+            if buffer2kill in ''.join(p.cmdline):
+                p.terminate()
+    return None
+
+
 cfg = O(buffers_path=os.path.join(APP_ROOT, u'buffers'),
         samples_path=os.path.join(APP_ROOT, u'samples'),
         ext_list=[u'mp3', u'ogg', u'wav'])
@@ -448,22 +637,34 @@ samplelist = None
 bufferlist = None
 f_reload()
 
-funclist = {'help': f_help,
-            'play': f_play,
-            'ls': f_ls,
-            'list': f_ls,
-            'quit': f_quit,
-            'bye': f_quit,
-            'save': f_save,
-            'cat': f_cat,
-            'read': f_cat,
-            'run': f_run,
-            'repeat': f_run,
-            'load': f_load,
-            'unload': f_unload,
-            'reload': f_reload,
-            'vars': f_vars, }
-
+# why `playable`? IDK.
+# what it means is that this fn is allowed to be `played`.
+funcdict = {}
+funclist = [O(name='help', func=f_help, playable=False),
+            O(name='play', func=f_play, playable=True),
+            O(name='ls', func=f_ls, playable=False),
+            O(name='list', func=f_ls, playable=False),
+            O(name='quit', func=f_quit, playable=False),
+            O(name='bye', func=f_quit, playable=False),
+            O(name='save', func=f_save, playable=False),
+            O(name='cat', func=f_cat, playable=False),
+            O(name='read', func=f_cat, playable=False),
+            O(name='run', func=f_run, playable=True),
+            O(name='do', func=f_run, playable=True),
+            O(name='repeat', func=f_run, playable=False),
+            O(name='load', func=f_load, playable=True),
+            O(name='use', func=f_load, playable=True),
+            O(name='unload', func=f_unload, playable=True),
+            O(name='reload', func=f_reload, playable=False),
+            O(name='vars', func=f_vars, playable=False),
+            O(name='framerate', func=f_framerate, playable=True),
+            O(name='speed', func=f_framerate, playable=True),
+            O(name='say', func=f_say, playable=True),
+            O(name='talk', func=f_say, playable=True),
+]
+for fn in funclist:
+    funcdict[fn.name] = fn
+playable_funcs = [fn.name for fn in funclist if fn.playable]
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -475,6 +676,18 @@ if __name__ == '__main__':
                         type=str,
                         help=_audio_engine.__doc__)
 
+    parser.add_argument('-l', '--loop',
+                        action="store_true",
+                        help=loop.__doc__)
+
+    parser.add_argument('-k', '--kill',
+                        action="store_true",
+                        help=kill.__doc__)
+
+    parser.add_argument('-ff', '--fromfile',
+                        type=str,
+                        help=from_file.__doc__)
+
     parser.add_argument('-r', '--run',
                         type=str,
                         help=f_run.__doc__)
@@ -482,6 +695,10 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--play',
                         type=str,
                         help=f_play.__doc__)
+
+    parser.add_argument('-s', '--say',
+                        type=str,
+                        help=f_say.__doc__)
 
     parser.add_argument('-ls', '--list',
                         action="store_true",
@@ -491,17 +708,28 @@ if __name__ == '__main__':
 
     _audio_engine(args.engine)
 
-    if args.console:
-        buffer_temp = tempfile.mkstemp(prefix='m5k-')[1]
-        print u"Saving session to {buffer}".format(buffer=buffer_temp)
-        console(buffer_temp)
-
+    if args.loop:
+        loop(args)
+    elif args.kill:
+        kill(args)
     else:
-        if args.run:
-            f_run(args.run)
+        if args.console:
+            buffer_temp = tempfile.mkstemp(prefix='m5k-')[1]
+            print u"Saving session to {buffer}".format(buffer=buffer_temp)
+            console(buffer_temp)
 
-        if args.play:
-            f_play(args.play)
+        else:
+            if args.run:
+                f_run(args.run)
 
-        if args.list:
-            print f_ls()
+            if args.play:
+                f_play(args.play)
+
+            if args.say:
+                f_say(args.say)
+
+            if args.fromfile:
+                from_file(args.fromfile)
+
+            if args.list:
+                print f_ls()
