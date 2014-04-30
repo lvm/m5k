@@ -2,7 +2,7 @@ m5k, thingy to play with musik.
 ===
 
 In m5k you play with music by playing two kind of *media files*, samples and `buffers`. A sample is an audio file (by default, ogg, wav or mp3), and a `buffer` which is no less than a plain text file with the extension .m5k (think of it as a collection of commands).  
-All audio files are played using `vlc.py` (see file for LICENSE) or `pygame`. See `Audio Engine`.
+All audio files are played using `vlc.py` (see `vlc.py` for it's LICENSE), `pygame` or `sfml`. See `Audio Engine`.
 
 # how to install
 
@@ -71,7 +71,11 @@ Also, it's possible to ask for help by running a command with a question mark, t
 
 ## Audio engine: `-e`, `--engine`
 
-Allows to choose play audio with vlc or pygame or sfml.
+Allows to choose play audio with vlc or pygame or sfml.  
+There are differences between them and reasons to still keep them all.  
+vlc, it works out-of-the-box, you just need vlc installed (which you probably already have).  
+pygame, besides being a bit more flexible, it allows fadeout.  
+sfml, haven't used it much but seems to have more functionality than vlc or pygame.  
 
 ## Run: `-r`, `--run`
 
